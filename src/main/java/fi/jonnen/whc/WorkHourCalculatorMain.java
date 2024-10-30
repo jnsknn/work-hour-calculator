@@ -4,6 +4,7 @@ import java.awt.Dimension;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -37,11 +38,13 @@ import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.ss.usermodel.WorkbookFactory;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
 import fi.jonnen.whc.types.WorkHourRow;
 
 public class WorkHourCalculatorMain {
 
+	private static final String MESSAGE = "---------------------------------------------------------";
 	private static final Logger LOG = LogManager.getLogger(WorkHourCalculatorMain.class);
 	private static final String DATE = "Date";
 	private static final String COMMENTS = "Comments";
@@ -60,29 +63,27 @@ public class WorkHourCalculatorMain {
 	private static Integer iCellTask;
 	private static Integer iCellActualWork;
 	
-	private static Set<String> nonWorkingDates = new HashSet<String>();
-	private static Set<String> nonWorkingDaysOfWeek = new HashSet<String>();
+	private static Set<String> nonWorkingDates = new HashSet<>();
+	private static Set<String> nonWorkingDaysOfWeek = new HashSet<>();
 
 	public static void main(String[] args) {
-		loadProperties();
 		try (Stream<Path> paths = Files.walk(Paths.get("./"))) {
+			loadProperties();
 			List<Path> allValidFiles = paths.filter(Files::isRegularFile).filter(p -> p.toString().endsWith(".xlsx"))
 					.collect(Collectors.toList());
 			for (Path validFile : allValidFiles) {
 				tryToReadFile(validFile);
 			}
-		} catch (IOException ioe) {
-			LOG.error(ioe.getMessage(), ioe);
+		} catch (Exception e) {
+			LOG.error(e.getMessage(), e);
 		}
 		SwingUtilities.invokeLater(WorkHourCalculatorMain::createAndShowGUI);
 	}
 
 	private static void loadProperties() {
-		String rootPath = Thread.currentThread().getContextClassLoader().getResource("").getPath();
-		String appConfigPath = rootPath + "app.properties";
 		Properties appProps = new Properties();
-		try (FileInputStream fis = new FileInputStream(appConfigPath)) {
-			appProps.load(fis);
+		try (InputStream is = Thread.currentThread().getContextClassLoader().getResourceAsStream("whc.properties")) {
+			appProps.load(is);
 			nonWorkingDates = Set.of(appProps.getProperty("nonWorkingDates").split(","));
 			nonWorkingDaysOfWeek = Set.of(appProps.getProperty("nonWorkingDaysOfWeek").split(","));
 		} catch (IOException ioe) {
@@ -91,7 +92,7 @@ public class WorkHourCalculatorMain {
 	}
 
 	private static void tryToReadFile(Path validFile) {
-		try (Workbook wb = WorkbookFactory.create(new File(validFile.toUri()))) {
+		try (Workbook wb = new XSSFWorkbook(new File(validFile.toUri()))) {
 			LOG.info("File: {}", validFile);
 			LOG.info("Number of sheets: {}", wb.getNumberOfSheets());
 			wb.forEach(sheet -> {
@@ -126,7 +127,7 @@ public class WorkHourCalculatorMain {
 				double workHoursDone = 0d;
 				double workHoursExpected = 0d;
 				LOG.info("{}\t\t| {}\t\t| {}", "Date", "Hours", "Saldo");
-				LOG.info("---------------------------------------------------------");
+				LOG.info(MESSAGE);
 				while (calCurrent.before(calEnd)) {
 					List<WorkHourRow> whrsCurrent = whrs.stream()
 							.filter(whr -> calCurrent.getTime().equals(whr.getDate())).collect(Collectors.toList());
@@ -145,9 +146,10 @@ public class WorkHourCalculatorMain {
 					workHoursExpected += WORK_HOURS_PER_DAY;
 					calCurrent.add(Calendar.DATE, 1);
 				}
-				LOG.info("---------------------------------------------------------");
+				LOG.info(MESSAGE);
 				LOG.info("TOTAL:\t\t| {}h/{}h\t| {}h", workHoursDone, workHoursExpected,
 						(workHoursDone - workHoursExpected));
+				LOG.info(MESSAGE);
 			});
 		} catch (Exception e) {
 			LOG.error(e.getMessage(), e);
