@@ -135,7 +135,8 @@ public class WorkHourCalculatorMain {
 					double hourBankCurrent = workHoursCurrent - WORK_HOURS_PER_DAY;
 					String dayOfWeekCurrent = String.valueOf(calCurrent.get(Calendar.DAY_OF_WEEK));
 					String currentDate = DATE_FORMAT.format(calCurrent.getTime());
-					if(workHoursCurrent == 0d && (nonWorkingDaysOfWeek.contains(dayOfWeekCurrent) || nonWorkingDates.contains(currentDate))) {
+					boolean isWorkHoursExpected = !nonWorkingDaysOfWeek.contains(dayOfWeekCurrent) && !nonWorkingDates.contains(currentDate);
+					if(workHoursCurrent == 0d && !isWorkHoursExpected) {
 						calCurrent.add(Calendar.DATE, 1);
 						continue;
 					}
@@ -143,7 +144,9 @@ public class WorkHourCalculatorMain {
 							calCurrent.getDisplayName(Calendar.DAY_OF_WEEK, Calendar.LONG_STANDALONE, LOCALE),
 							workHoursCurrent, WORK_HOURS_PER_DAY, hourBankCurrent);
 					workHoursDone += workHoursCurrent;
-					workHoursExpected += WORK_HOURS_PER_DAY;
+					if(isWorkHoursExpected) {						
+						workHoursExpected += WORK_HOURS_PER_DAY;
+					}
 					calCurrent.add(Calendar.DATE, 1);
 				}
 				LOG.info(MESSAGE);
