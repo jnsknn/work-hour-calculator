@@ -44,9 +44,10 @@ import fi.jonnen.whc.types.WorkHourRow;
 
 public class WorkHourCalculatorMain {
 
-	private static final String MESSAGE = "---------------------------------------------------------";
+	private static final String MESSAGE = "-------------------------------------------------------------------------";
 	private static final Logger LOG = LogManager.getLogger(WorkHourCalculatorMain.class);
 	private static final String DATE = "Date";
+	private static final String EMPLOYEE = "Employee";
 	private static final String COMMENTS = "Comments";
 	private static final String PROJECT = "Project";
 	private static final String TASK = "Task";
@@ -58,6 +59,7 @@ public class WorkHourCalculatorMain {
 	private static final DateFormat DATE_FORMAT = DateFormat.getDateInstance(DateFormat.DEFAULT, LOCALE);
 
 	private static Integer iCellDate;
+	private static Integer iCellEmployee;
 	private static Integer iCellComments;
 	private static Integer iCellProject;
 	private static Integer iCellTask;
@@ -72,7 +74,7 @@ public class WorkHourCalculatorMain {
 			List<Path> allValidFiles = paths.filter(Files::isRegularFile).filter(p -> p.toString().endsWith(".xlsx"))
 					.collect(Collectors.toList());
 			for (Path validFile : allValidFiles) {
-				tryToReadFile(validFile);
+				tryToReadFileAndLogReport(validFile);
 			}
 		} catch (Exception e) {
 			LOG.error(e.getMessage(), e);
@@ -91,7 +93,7 @@ public class WorkHourCalculatorMain {
 		}
 	}
 
-	private static void tryToReadFile(Path validFile) {
+	private static void tryToReadFileAndLogReport(Path validFile) {
 		try (Workbook wb = new XSSFWorkbook(new File(validFile.toUri()))) {
 			LOG.info("File: {}", validFile);
 			LOG.info("Number of sheets: {}", wb.getNumberOfSheets());
@@ -99,6 +101,7 @@ public class WorkHourCalculatorMain {
 				LOG.info("Title of sheet => {}", sheet.getSheetName());
 				sheet.removeRow(initCellIndices(sheet));
 				final List<WorkHourRow> whrs = new ArrayList<>();
+				final double workHourExpectedMultiplier = countDistinctEmployees(sheet);
 				int iseCount = 0;
 				for (Row row : sheet) {
 					try {
@@ -119,61 +122,98 @@ public class WorkHourCalculatorMain {
 						ise.printStackTrace();
 					}
 				}
-				Collections.sort(whrs);
-				Date earliestDate = whrs.get(0).getDate();
-				Date latestDate = whrs.get(whrs.size() - 1).getDate();
-				LOG.info("Iterating over all working dates between {} -> {}", DATE_FORMAT.format(earliestDate),
-						DATE_FORMAT.format(latestDate));
-
-				GregorianCalendar calCurrent = new GregorianCalendar(LOCALE);
-				calCurrent.setTime(earliestDate);
-				GregorianCalendar calEnd = new GregorianCalendar(LOCALE);
-				calEnd.setTime(latestDate);
-				calEnd.add(Calendar.DATE, 1);
-				double workHoursDone = 0d;
-				double workHoursExpected = 0d;
-				LOG.info("{}\t\t| {}\t\t| {}", "Date", "Hours", "Saldo");
-				LOG.info(MESSAGE);
-				while (calCurrent.before(calEnd)) {
-					List<WorkHourRow> whrsCurrent = whrs.stream()
-							.filter(whr -> calCurrent.getTime().equals(whr.getDate())).collect(Collectors.toList());
-					double workHoursCurrent = whrsCurrent.stream().mapToDouble(w -> w.getWorkHours()).sum();
-					double hourBankCurrent = workHoursCurrent - WORK_HOURS_PER_DAY;
-					String dayOfWeekCurrent = String.valueOf(calCurrent.get(Calendar.DAY_OF_WEEK));
-					String currentDate = DATE_FORMAT.format(calCurrent.getTime());
-					boolean isWorkHoursExpected = !nonWorkingDaysOfWeek.contains(dayOfWeekCurrent)
-							&& !nonWorkingDates.contains(currentDate);
-					if (workHoursCurrent == 0d && !isWorkHoursExpected) {
-						calCurrent.add(Calendar.DATE, 1);
-						continue;
-					}
-					LOG.info("{} {}\t| {}h/{}h\t\t| {}h", currentDate,
-							calCurrent.getDisplayName(Calendar.DAY_OF_WEEK, Calendar.LONG_STANDALONE, LOCALE),
-							workHoursCurrent, WORK_HOURS_PER_DAY, hourBankCurrent);
-					workHoursDone += workHoursCurrent;
-					if (isWorkHoursExpected) {
-						workHoursExpected += WORK_HOURS_PER_DAY;
-					}
-					calCurrent.add(Calendar.DATE, 1);
-				}
-				LOG.info(MESSAGE);
-				LOG.info("TOTAL:\t\t| {}h/{}h\t| {}h", workHoursDone, workHoursExpected,
-						(workHoursDone - workHoursExpected));
-				if (iseCount > 0) {
-					LOG.warn(
-							"There were total of {} IllegalStateExceptions due to bad (non-data) rows. {}/{} rows was succesfully calculated",
-							iseCount, (whrs.size() - iseCount), whrs.size());
-				}
-				LOG.info(MESSAGE);
+				logReport(whrs, workHourExpectedMultiplier, iseCount);
 				resetCellIndices();
 			});
 		} catch (Exception e) {
 			LOG.error(e.getMessage(), e);
 		}
 	}
-	
+
+	private static void logReport(final List<WorkHourRow> whrs, final double workHourExpectedMultiplier, int iseCount) {
+		Collections.sort(whrs);
+		Date earliestDate = whrs.get(0).getDate();
+		Date latestDate = whrs.get(whrs.size() - 1).getDate();
+		LOG.info("Iterating over all working dates between {} -> {}", DATE_FORMAT.format(earliestDate),
+				DATE_FORMAT.format(latestDate));
+
+		GregorianCalendar calCurrent = new GregorianCalendar(LOCALE);
+		calCurrent.setTime(earliestDate);
+		GregorianCalendar calEnd = new GregorianCalendar(LOCALE);
+		calEnd.setTime(latestDate);
+		calEnd.add(Calendar.DATE, 1);
+		double workHoursDone = 0d;
+		double workHoursExpected = 0d;
+		final double workHoursPerDayExpected = WORK_HOURS_PER_DAY * workHourExpectedMultiplier;
+		LOG.info("{}\t\t| {}\t\t| {}\t| {}", "Date", "Hours Done", "Hours Expected", "Saldo");
+		LOG.info(MESSAGE);
+		while (calCurrent.before(calEnd)) {
+			String dayOfWeekCurrent = String.valueOf(calCurrent.get(Calendar.DAY_OF_WEEK));
+			String currentDate = DATE_FORMAT.format(calCurrent.getTime());
+			boolean isWorkHoursExpected = !nonWorkingDaysOfWeek.contains(dayOfWeekCurrent)
+					&& !nonWorkingDates.contains(currentDate);
+			List<WorkHourRow> whrsCurrent = whrs.stream().filter(whr -> calCurrent.getTime().equals(whr.getDate()))
+					.collect(Collectors.toList());
+			double workHoursCurrent = round(whrsCurrent.stream().mapToDouble(w -> w.getWorkHours()).sum(), 2);
+			double hourBankCurrent = round(workHoursCurrent - (isWorkHoursExpected ? workHoursPerDayExpected : 0d), 2);
+			if (workHoursCurrent == 0d && !isWorkHoursExpected) {
+				calCurrent.add(Calendar.DATE, 1);
+				continue;
+			}
+			LOG.info("{} {} {}\t| {}h\t\t| {}h\t\t| {}h", currentDate,
+					calCurrent.getDisplayName(Calendar.DAY_OF_WEEK, Calendar.LONG_STANDALONE, LOCALE),
+					(!isWorkHoursExpected ? "!!!" : ""), workHoursCurrent,
+					(isWorkHoursExpected ? workHoursPerDayExpected : 0d), hourBankCurrent);
+			workHoursDone += workHoursCurrent;
+			if (isWorkHoursExpected) {
+				workHoursExpected += workHoursPerDayExpected;
+			}
+			calCurrent.add(Calendar.DATE, 1);
+		}
+		workHoursDone = round(workHoursDone, 2);
+		workHoursExpected = round(workHoursExpected, 2);
+		final double workHoursSaldo = round(workHoursDone - workHoursExpected, 2);
+		LOG.info(MESSAGE);
+		LOG.info("TOTAL:\t\t| {}h\t\t| {}h\t\t| {}h", workHoursDone, workHoursExpected, workHoursSaldo);
+		if (iseCount > 0) {
+			LOG.warn(
+					"There were total of {} IllegalStateExceptions due to bad (non-data) rows. {}/{} rows was succesfully calculated",
+					iseCount, (whrs.size() - iseCount), whrs.size());
+		}
+		LOG.info(MESSAGE);
+	}
+
+	private static double round(double value, int places) {
+		if (places < 0)
+			throw new IllegalArgumentException();
+
+		long factor = (long) Math.pow(10, places);
+		value = value * factor;
+		long tmp = Math.round(value);
+		return (double) tmp / factor;
+	}
+
+	private static double countDistinctEmployees(Sheet sheet) {
+		if (iCellEmployee == null) {
+			return 1;
+		}
+		Set<String> employees = new HashSet<>();
+		for (Row row : sheet) {
+			try {
+				String employee = row.getCell(iCellEmployee).getStringCellValue();
+				if (!"".equals(employee)) {
+					employees.add(row.getCell(iCellEmployee).getStringCellValue().toLowerCase());
+				}
+			} catch (IllegalStateException ise) {
+				ise.printStackTrace();
+			}
+		}
+		return !employees.isEmpty() ? employees.size() : 1;
+	}
+
 	private static void resetCellIndices() {
 		iCellDate = null;
+		iCellEmployee = null;
 		iCellComments = null;
 		iCellProject = null;
 		iCellTask = null;
@@ -185,16 +225,21 @@ public class WorkHourCalculatorMain {
 			Iterator<Cell> i = row.cellIterator();
 			while (i.hasNext()) {
 				Cell cell = i.next();
-				if (cell.getStringCellValue().equals(DATE) && iCellDate == null) {
+				if (cell.getStringCellValue().equalsIgnoreCase(DATE) && iCellDate == null) {
 					iCellDate = cell.getColumnIndex();
-				} else if (cell.getStringCellValue().equals(COMMENTS) && iCellComments == null) {
+				} else if (cell.getStringCellValue().equalsIgnoreCase(COMMENTS) && iCellComments == null) {
 					iCellComments = cell.getColumnIndex();
-				} else if (cell.getStringCellValue().equals(PROJECT) && iCellProject == null) {
+				} else if (cell.getStringCellValue().equalsIgnoreCase(PROJECT) && iCellProject == null) {
 					iCellProject = cell.getColumnIndex();
-				} else if (cell.getStringCellValue().equals(TASK) && iCellTask == null) {
+				} else if (cell.getStringCellValue().equalsIgnoreCase(TASK) && iCellTask == null) {
 					iCellTask = cell.getColumnIndex();
-				} else if (cell.getStringCellValue().equals(ACTUAL_WORK) && iCellActualWork == null) {
+				} else if (cell.getStringCellValue().equalsIgnoreCase(ACTUAL_WORK) && iCellActualWork == null) {
 					iCellActualWork = cell.getColumnIndex();
+				}
+
+				// Used only for distinct count, and may not be present
+				if (cell.getStringCellValue().equalsIgnoreCase(EMPLOYEE)) {
+					iCellEmployee = cell.getColumnIndex();
 				}
 			}
 			if (iCellDate != null && iCellComments != null && iCellProject != null && iCellTask != null
