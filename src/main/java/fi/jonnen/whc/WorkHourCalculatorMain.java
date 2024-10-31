@@ -62,7 +62,7 @@ public class WorkHourCalculatorMain {
 	private static Integer iCellProject;
 	private static Integer iCellTask;
 	private static Integer iCellActualWork;
-	
+
 	private static Set<String> nonWorkingDates = new HashSet<>();
 	private static Set<String> nonWorkingDaysOfWeek = new HashSet<>();
 
@@ -88,7 +88,7 @@ public class WorkHourCalculatorMain {
 			nonWorkingDaysOfWeek = Set.of(appProps.getProperty("nonWorkingDaysOfWeek").split(","));
 		} catch (IOException ioe) {
 			LOG.error(ioe);
-		} 
+		}
 	}
 
 	private static void tryToReadFile(Path validFile) {
@@ -99,19 +99,25 @@ public class WorkHourCalculatorMain {
 				LOG.info("Title of sheet => {}", sheet.getSheetName());
 				sheet.removeRow(initCellIndices(sheet));
 				final List<WorkHourRow> whrs = new ArrayList<>();
+				int iseCount = 0;
 				for (Row row : sheet) {
-					Cell cellDate = row.getCell(iCellDate);
-					Cell cellComments = row.getCell(iCellComments);
-					Cell cellProject = row.getCell(iCellProject);
-					Cell cellTask = row.getCell(iCellTask);
-					Cell cellActualWork = row.getCell(iCellActualWork);
-					WorkHourRow whr = new WorkHourRow();
-					whr.setDate(cellDate.getDateCellValue());
-					whr.setComments(cellComments.getStringCellValue());
-					whr.setProject(cellProject.getStringCellValue());
-					whr.setTask(cellTask.getStringCellValue());
-					whr.setWorkHours(cellActualWork.getNumericCellValue());
-					whrs.add(whr);
+					try {
+						Cell cellDate = row.getCell(iCellDate);
+						Cell cellComments = row.getCell(iCellComments);
+						Cell cellProject = row.getCell(iCellProject);
+						Cell cellTask = row.getCell(iCellTask);
+						Cell cellActualWork = row.getCell(iCellActualWork);
+						WorkHourRow whr = new WorkHourRow();
+						whr.setDate(cellDate.getDateCellValue());
+						whr.setComments(cellComments.getStringCellValue());
+						whr.setProject(cellProject.getStringCellValue());
+						whr.setTask(cellTask.getStringCellValue());
+						whr.setWorkHours(cellActualWork.getNumericCellValue());
+						whrs.add(whr);
+					} catch (IllegalStateException ise) {
+						iseCount++;
+						ise.printStackTrace();
+					}
 				}
 				Collections.sort(whrs);
 				Date earliestDate = whrs.get(0).getDate();
@@ -135,8 +141,9 @@ public class WorkHourCalculatorMain {
 					double hourBankCurrent = workHoursCurrent - WORK_HOURS_PER_DAY;
 					String dayOfWeekCurrent = String.valueOf(calCurrent.get(Calendar.DAY_OF_WEEK));
 					String currentDate = DATE_FORMAT.format(calCurrent.getTime());
-					boolean isWorkHoursExpected = !nonWorkingDaysOfWeek.contains(dayOfWeekCurrent) && !nonWorkingDates.contains(currentDate);
-					if(workHoursCurrent == 0d && !isWorkHoursExpected) {
+					boolean isWorkHoursExpected = !nonWorkingDaysOfWeek.contains(dayOfWeekCurrent)
+							&& !nonWorkingDates.contains(currentDate);
+					if (workHoursCurrent == 0d && !isWorkHoursExpected) {
 						calCurrent.add(Calendar.DATE, 1);
 						continue;
 					}
@@ -144,7 +151,7 @@ public class WorkHourCalculatorMain {
 							calCurrent.getDisplayName(Calendar.DAY_OF_WEEK, Calendar.LONG_STANDALONE, LOCALE),
 							workHoursCurrent, WORK_HOURS_PER_DAY, hourBankCurrent);
 					workHoursDone += workHoursCurrent;
-					if(isWorkHoursExpected) {						
+					if (isWorkHoursExpected) {
 						workHoursExpected += WORK_HOURS_PER_DAY;
 					}
 					calCurrent.add(Calendar.DATE, 1);
@@ -152,11 +159,25 @@ public class WorkHourCalculatorMain {
 				LOG.info(MESSAGE);
 				LOG.info("TOTAL:\t\t| {}h/{}h\t| {}h", workHoursDone, workHoursExpected,
 						(workHoursDone - workHoursExpected));
+				if (iseCount > 0) {
+					LOG.warn(
+							"There were total of {} IllegalStateExceptions due to bad (non-data) rows. {}/{} rows was succesfully calculated",
+							iseCount, (whrs.size() - iseCount), whrs.size());
+				}
 				LOG.info(MESSAGE);
+				resetCellIndices();
 			});
 		} catch (Exception e) {
 			LOG.error(e.getMessage(), e);
 		}
+	}
+	
+	private static void resetCellIndices() {
+		iCellDate = null;
+		iCellComments = null;
+		iCellProject = null;
+		iCellTask = null;
+		iCellActualWork = null;
 	}
 
 	private static Row initCellIndices(Sheet sheet) {
