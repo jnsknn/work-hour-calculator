@@ -177,8 +177,8 @@ public class WorkHourCalculatorMain {
 		LOG.info("TOTAL:\t\t| {}h\t\t| {}h\t\t| {}h", workHoursDone, workHoursExpected, workHoursSaldo);
 		if (iseCount > 0) {
 			LOG.warn(
-					"There were total of {} IllegalStateExceptions due to bad (non-data) rows. {}/{} rows was succesfully calculated",
-					iseCount, (whrs.size() - iseCount), whrs.size());
+					"There were total of {} IllegalStateExceptions due to bad (non-data) rows. {} data rows was succesfully calculated",
+					iseCount, whrs.size());
 		}
 		LOG.info(MESSAGE);
 	}
